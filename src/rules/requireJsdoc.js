@@ -57,6 +57,10 @@ const OPTIONS_SCHEMA = {
       default: false,
       type: 'boolean',
     },
+    minLines: {
+      default: 0,
+      type: 'integer',
+    },
     publicOnly: {
       oneOf: [
         {
@@ -134,6 +138,7 @@ const getOptions = (context) => {
     exemptEmptyConstructors = true,
     exemptEmptyFunctions = false,
     enableFixer = true,
+    minLines = 0,
   } = context.options[0] || {};
 
   return {
@@ -141,6 +146,7 @@ const getOptions = (context) => {
     enableFixer,
     exemptEmptyConstructors,
     exemptEmptyFunctions,
+    minLines,
     publicOnly: ((baseObj) => {
       if (!publicOnly) {
         return false;
@@ -166,6 +172,112 @@ const getOptions = (context) => {
   };
 };
 
+/**
+ * Given a list of comment nodes, return a map with numeric keys (source code line numbers) and comment token values.
+ *
+ * @param {Array} comments An array of comment nodes.
+ * @returns {Map.<string,Node>} A map with numeric keys (source code line numbers) and comment token values.
+ */
+const getCommentLineNumbers = (comments) => {
+  const map = new Map();
+
+  comments.forEach((comment) => {
+    for (let line = comment.loc.start.line; line <= comment.loc.end.line; line++) {
+      map.set(line, comment);
+    }
+  });
+
+  return map;
+};
+
+/**
+ * Tells if a comment encompasses the entire line.
+ *
+ * @param {string} line The source line with a trailing comment
+ * @param {number} lineNumber The one-indexed line number this is on
+ * @param {ASTNode} comment The comment to remove
+ * @returns {boolean} If the comment covers the entire line
+ */
+const isFullLineComment = (line, lineNumber, comment) => {
+  const start = comment.loc.start;
+  const end = comment.loc.end;
+  const isFirstTokenOnLine = start.line === lineNumber && !line.slice(0, start.column).trim();
+  const isLastTokenOnLine = end.line === lineNumber && !line.slice(end.column).trim();
+
+  return comment &&
+      (start.line < lineNumber || isFirstTokenOnLine) &&
+      (end.line > lineNumber || isLastTokenOnLine);
+};
+
+/**
+ * Identifies is a node is a FunctionExpression which is part of an IIFE
+ *
+ * @param {ASTNode} node Node to test
+ * @returns {boolean} True if it's an IIFE
+ */
+const isIIFE = (node) => {
+  return (
+    (
+      node.type === 'FunctionExpression' ||
+      node.type === 'ArrowFunctionExpression'
+    ) &&
+    node.parent &&
+    node.parent.type === 'CallExpression' &&
+    node.parent.callee === node
+  );
+};
+
+/**
+ * Identifies is a node is a FunctionExpression which is embedded within a MethodDefinition or Property
+ *
+ * @param {ASTNode} node Node to test
+ * @returns {boolean} True if it's a FunctionExpression embedded within a MethodDefinition or Property
+ */
+const isEmbedded = (node) => {
+  if (!node.parent) {
+    return false;
+  }
+  if (node !== node.parent.value) {
+    return false;
+  }
+  if (node.parent.type === 'MethodDefinition') {
+    return true;
+  }
+  if (node.parent.type === 'Property') {
+    return node.parent.method === true || node.parent.kind === 'get' || node.parent.kind === 'set';
+  }
+
+  return false;
+};
+
+const getLinesCountInFunction = (funcNode, lines, commentLineNumbers, {
+  skipComments = true,
+  skipBlankLines = true,
+} = {}) => {
+  const node = isEmbedded(funcNode) ? funcNode.parent : funcNode;
+
+  if (isIIFE(node)) {
+    return null;
+  }
+
+  let lineCount = 0;
+
+  for (let linePos = node.loc.start.line - 1; linePos < node.loc.end.line; ++linePos) {
+    const line = lines[linePos];
+
+    if (skipComments && commentLineNumbers.has(linePos + 1) && isFullLineComment(line, linePos + 1, commentLineNumbers.get(linePos + 1))) {
+      continue;
+    }
+    if (skipBlankLines && line.match(/^\s*$/u)) {
+      continue;
+    }
+
+    lineCount++;
+  }
+
+  return lineCount;
+};
+
 export default {
   create (context) {
     const sourceCode = context.getSourceCode();
@@ -178,6 +290,7 @@ export default {
       require: requireOption,
       contexts,
       publicOnly, exemptEmptyFunctions, exemptEmptyConstructors, enableFixer,
+      minLines,
     } = getOptions(context);
 
     const checkJsDoc = (node, isFunctionContext) => {
@@ -203,6 +316,14 @@ export default {
       ) {
         const functionParameterNames = jsdocUtils.getFunctionParameterNames(node);
         if (!functionParameterNames.length && !jsdocUtils.hasReturnValue(node, context)) {
+          return;
+        }
+      }
+
+      if (minLines > 0) {
+        const commentLineNumbers = getCommentLineNumbers(sourceCode.getAllComments());
+
+        if (getLinesCountInFunction(node, sourceCode.lines, commentLineNumbers) <= minLines) {
           return;
         }
       }

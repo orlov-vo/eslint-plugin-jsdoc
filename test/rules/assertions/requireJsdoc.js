@@ -2694,6 +2694,29 @@ export default {
         sourceType: 'module',
       },
     },
+    {
+      code: `
+      function foo() {
+        console.log('foo');
+        console.log('bar');
+      }
+      `,
+      errors: [{
+        message: 'Missing JSDoc comment.',
+      }],
+      options: [{
+        minLines: 3,
+      }],
+      output: `
+      /**
+       *
+       */
+      function foo() {
+        console.log('foo');
+        console.log('bar');
+      }
+      `,
+    },
   ],
   valid: [{
     code: `
@@ -4182,6 +4205,16 @@ export default {
       publicOnly: true,
     }],
     parser: require.resolve('@typescript-eslint/parser'),
+  },
+  {
+    code: `
+    function foo() {
+      console.log('foo');
+    }
+`,
+    options: [{
+      minLines: 3,
+    }],
   },
   ],
 };
