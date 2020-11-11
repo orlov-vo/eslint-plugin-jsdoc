@@ -88,7 +88,8 @@
     "test-cov": "cross-env BABEL_ENV=test nyc mocha --recursive --require @babel/register --reporter progress --timeout 9000",
     "test-no-cov": "cross-env BABEL_ENV=test mocha --recursive --require @babel/register --reporter progress --timeout 9000",
     "test-index": "cross-env BABEL_ENV=test mocha --recursive --require @babel/register --reporter progress --timeout 9000 test/rules/index.js",
-    "test": "cross-env BABEL_ENV=test nyc --reporter text-summary mocha --recursive --require @babel/register --reporter progress --timeout 9000"
+    "test": "cross-env BABEL_ENV=test nyc --reporter text-summary mocha --recursive --require @babel/register --reporter progress --timeout 9000",
+    "prepare": "npm run build"
   },
   "nyc": {
     "require": [
